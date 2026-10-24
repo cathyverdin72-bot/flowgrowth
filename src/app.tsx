@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import {
+  generateContent,
+  type ContentFormat,
+} from "./lib/generation";
+import {
   ArrowDownRight,
   ArrowRight,
   AudioLines,
@@ -25,12 +29,6 @@ import {
   Trash2,
 } from "lucide-react";
 
-type ContentFormat =
-  | "Social post"
-  | "Story"
-  | "Video script"
-  | "Image concept";
-
 type Project = {
   id: string;
   title: string;
@@ -39,6 +37,7 @@ type Project = {
   updated: string;
   iconKey: "story" | "social" | "video" | "image";
   color: string;
+  generatedContent?: string;
 };
 
 const STORAGE_KEY = "growthflow_projects_v1";
@@ -135,8 +134,12 @@ function readProjects(): Project[] {
         formats.some((format) => format.name === item.category) &&
         typeof item.updated === "string" &&
         typeof item.iconKey === "string" &&
-        ["story", "social", "video", "image"].includes(item.iconKey) &&
-        typeof item.color === "string",
+        ["story", "social", "video", "image"].includes(
+          item.iconKey,
+        ) &&
+        typeof item.color === "string" &&
+        (item.generatedContent === undefined ||
+          typeof item.generatedContent === "string"),
     );
   } catch {
     return initialProjects;
@@ -145,21 +148,29 @@ function readProjects(): Project[] {
 
 function App() {
   const [activeNav, setActiveNav] = useState("Workspace");
-  const [format, setFormat] = useState<ContentFormat>("Social post");
+  const [format, setFormat] =
+    useState<ContentFormat>("Social post");
   const [idea, setIdea] = useState("");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [result, setResult] = useState("");
-  const [projects, setProjects] = useState<Project[]>(readProjects);
+  const [generatedContent, setGeneratedContent] = useState("");
+  const [generationModel, setGenerationModel] = useState("");
+  const [generationError, setGenerationError] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [projects, setProjects] =
+    useState<Project[]>(readProjects);
   const [searchTerm, setSearchTerm] = useState("");
-  const [editingProjectId, setEditingProjectId] = useState<string | null>(
-    null,
-  );
+  const [editingProjectId, setEditingProjectId] =
+    useState<string | null>(null);
   const [storageError, setStorageError] = useState(false);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(projects),
+      );
       setStorageError(false);
     } catch {
       setStorageError(true);
@@ -167,7 +178,9 @@ function App() {
   }, [projects]);
 
   const filteredProjects = projects.filter((project) =>
-    project.title.toLowerCase().includes(searchTerm.toLowerCase()),
+    project.title
+      .toLowerCase()
+      .includes(searchTerm.toLowerCase()),
   );
 
   function handleCreate() {
@@ -192,6 +205,11 @@ function App() {
                 title: cleanIdea.split("\n")[0].slice(0, 60),
                 category: format,
                 idea: cleanIdea,
+                generatedContent:
+                  project.idea === cleanIdea &&
+                  project.category === format
+                    ? project.generatedContent
+                    : undefined,
                 updated: `Edited ${now}`,
                 iconKey: iconForFormat[format],
               }
@@ -230,6 +248,9 @@ function App() {
     setEditingProjectId(project.id);
     setIdea(project.idea);
     setFormat(project.category);
+    setGeneratedContent(project.generatedContent ?? "");
+    setGenerationModel("");
+    setGenerationError("");
     setResult("");
     setActiveNav("Workspace");
     setShowMobileNav(false);
@@ -241,8 +262,103 @@ function App() {
     setEditingProjectId(null);
     setIdea("");
     setFormat("Social post");
+    setGeneratedContent("");
+    setGenerationModel("");
+    setGenerationError("");
     setResult("");
     setActiveNav("Workspace");
+  }
+
+  async function handleGenerate() {
+    const cleanIdea = idea.trim();
+
+    if (!cleanIdea) {
+      setGenerationError(
+        "Enter an idea before generating content.",
+      );
+      return;
+    }
+
+    setIsGenerating(true);
+    setGenerationError("");
+    setResult("");
+
+    try {
+      const response = await generateContent({
+        idea: cleanIdea,
+        format,
+      });
+
+      const now = new Date().toLocaleString(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      });
+
+      setGeneratedContent(response.content);
+      setGenerationModel(response.model);
+
+      if (editingProjectId) {
+        setProjects((current) =>
+          current.map((project) =>
+            project.id === editingProjectId
+              ? {
+                  ...project,
+                  title: cleanIdea.split("\n")[0].slice(0, 60),
+                  category: format,
+                  idea: cleanIdea,
+                  generatedContent: response.content,
+                  updated: `Generated ${now}`,
+                  iconKey: iconForFormat[format],
+                }
+              : project,
+          ),
+        );
+      } else {
+        const newProject: Project = {
+          id: crypto.randomUUID(),
+          title: cleanIdea.split("\n")[0].slice(0, 60),
+          category: format,
+          idea: cleanIdea,
+          generatedContent: response.content,
+          updated: `Generated ${now}`,
+          iconKey: iconForFormat[format],
+          color:
+            format === "Story"
+              ? "violet"
+              : format === "Video script"
+                ? "blue"
+                : format === "Image concept"
+                  ? "mint"
+                  : "violet",
+        };
+
+        setProjects((current) => [newProject, ...current]);
+        setEditingProjectId(newProject.id);
+      }
+
+      setResult(
+        "Generated content and saved it with this brief on this device.",
+      );
+    } catch (error) {
+      setGenerationError(
+        error instanceof Error
+          ? error.message
+          : "Content generation failed. Please try again.",
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function copyGeneratedContent() {
+    try {
+      await navigator.clipboard.writeText(generatedContent);
+      setResult("Generated content copied to clipboard.");
+    } catch {
+      setGenerationError(
+        "Clipboard access is unavailable in this browser. Select the text and copy it manually.",
+      );
+    }
   }
 
   function deleteProject(project: Project) {
@@ -284,7 +400,9 @@ function App() {
         />
       )}
 
-      <aside className={`sidebar ${showMobileNav ? "sidebar-open" : ""}`}>
+      <aside
+        className={`sidebar ${showMobileNav ? "sidebar-open" : ""}`}
+      >
         <a
           className="brand"
           href="#workspace"
@@ -364,7 +482,9 @@ function App() {
           </button>
         </nav>
 
-        <div className="sidebar-label sidebar-label-spaced">CREATE</div>
+        <div className="sidebar-label sidebar-label-spaced">
+          CREATE
+        </div>
 
         <nav className="nav-list" aria-label="Creation tools">
           <button
@@ -483,7 +603,9 @@ function App() {
                 aria-label="Search projects"
                 placeholder="Search projects..."
                 value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
+                onChange={(event) =>
+                  setSearchTerm(event.target.value)
+                }
               />
 
               <span className="search-shortcut">
@@ -513,8 +635,8 @@ function App() {
               <h1>Every great thing starts with an idea.</h1>
 
               <p className="page-subtitle">
-                Choose a starting point, then turn it into something of your
-                own.
+                Choose a starting point, then turn it into something of
+                your own.
               </p>
 
               <div className="idea-prompt-grid">
@@ -551,7 +673,10 @@ function App() {
                 Your saved creative briefs, stored on this device.
               </p>
 
-              <button className="primary-button" onClick={startNewBrief}>
+              <button
+                className="primary-button"
+                onClick={startNewBrief}
+              >
                 New brief <ArrowRight size={16} />
               </button>
 
@@ -578,7 +703,8 @@ function App() {
               </h1>
 
               <p className="page-subtitle">
-                Start with a brief. Shape your idea into a creative direction.
+                Start with a brief. Shape your idea into a creative
+                direction.
               </p>
 
               <button
@@ -598,13 +724,14 @@ function App() {
                   </div>
 
                   <h1>
-                    Ideas become <span className="gradient-text">something.</span>
+                    Ideas become{" "}
+                    <span className="gradient-text">something.</span>
                   </h1>
 
                   <p className="welcome-description">
                     Think it. Shape it. Bring it to life.
-                    <br className="desktop-break" /> Your creative process
-                    starts here.
+                    <br className="desktop-break" /> Your creative
+                    process starts here.
                   </p>
                 </div>
 
@@ -654,6 +781,9 @@ function App() {
                     onChange={(event) => {
                       setIdea(event.target.value);
                       setResult("");
+                      setGenerationError("");
+                      setGeneratedContent("");
+                      setGenerationModel("");
                     }}
                     placeholder="Describe what you want to create, who it's for, and what you want it to achieve..."
                     rows={4}
@@ -662,7 +792,8 @@ function App() {
 
                   <div className="composer-bottom">
                     <span className="input-hint">
-                      <Sparkles size={14} /> A rough idea is enough to begin.
+                      <Sparkles size={14} /> A rough idea is enough to
+                      begin.
                     </span>
 
                     <span className="character-count">
@@ -674,7 +805,9 @@ function App() {
 
                   <div className="format-heading">
                     <div>
-                      <span className="field-label">CHOOSE YOUR FORMAT</span>
+                      <span className="field-label">
+                        CHOOSE YOUR FORMAT
+                      </span>
                       <span className="format-subtitle">
                         What should this become?
                       </span>
@@ -692,7 +825,12 @@ function App() {
                           className={`format-option ${
                             selected ? "format-selected" : ""
                           }`}
-                          onClick={() => setFormat(item.name)}
+                          onClick={() => {
+                            setFormat(item.name);
+                            setGeneratedContent("");
+                            setGenerationModel("");
+                            setGenerationError("");
+                          }}
                           aria-pressed={selected}
                         >
                           <span className="format-icon">
@@ -717,7 +855,25 @@ function App() {
                       <Settings2 size={14} /> Saved on this device.
                     </span>
 
-                    <div style={{ display: "flex", gap: "10px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: "10px",
+                        flexWrap: "wrap",
+                        justifyContent: "flex-end",
+                      }}
+                    >
+                      <button
+                        className="text-button"
+                        onClick={handleGenerate}
+                        disabled={!idea.trim() || isGenerating}
+                      >
+                        <Sparkles size={15} />
+                        {isGenerating
+                          ? "Generating..."
+                          : "Generate content"}
+                      </button>
+
                       {editingProjectId && (
                         <button
                           className="text-button"
@@ -732,20 +888,95 @@ function App() {
                         onClick={handleCreate}
                         disabled={!idea.trim()}
                       >
-                        {editingProjectId ? "Save changes" : "Save brief"}
+                        {editingProjectId
+                          ? "Save changes"
+                          : "Save brief"}
                         <ArrowRight size={16} />
                       </button>
                     </div>
                   </div>
                 </div>
 
+                {isGenerating && (
+                  <div className="result-notice" role="status">
+                    <span className="result-icon">
+                      <Sparkles size={17} />
+                    </span>
+
+                    <div>
+                      <strong>Creating your content</strong>
+                      <p>
+                        GrowthFlow is waiting for the generation service
+                        to respond. This can take a little while.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {generationError && (
+                  <div
+                    className="result-notice generation-error"
+                    role="alert"
+                  >
+                    <div>
+                      <strong>Generation could not complete</strong>
+                      <p>{generationError}</p>
+                    </div>
+
+                    <button
+                      className="icon-button"
+                      aria-label="Dismiss generation error"
+                      onClick={() => setGenerationError("")}
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                )}
+
+                {generatedContent && (
+                  <section
+                    className="generated-output"
+                    aria-labelledby="generated-output-title"
+                  >
+                    <div className="generated-output-heading">
+                      <div>
+                        <span className="eyebrow">
+                          <Sparkles size={14} /> GENERATED RESULT
+                        </span>
+
+                        <h2 id="generated-output-title">
+                          Your content
+                        </h2>
+
+                        <p>
+                          {generationModel
+                            ? `Model: ${generationModel}`
+                            : "Saved with this brief on this device."}
+                        </p>
+                      </div>
+
+                      <button
+                        className="text-button"
+                        onClick={copyGeneratedContent}
+                      >
+                        <FileText size={15} /> Copy text
+                      </button>
+                    </div>
+
+                    <div className="generated-output-content">
+                      {generatedContent}
+                    </div>
+                  </section>
+                )}
+
                 {storageError && (
                   <div className="result-notice" role="alert">
                     <div>
                       <strong>Could not save projects</strong>
                       <p>
-                        Browser storage may be unavailable or full. Your latest
-                        changes may not persist after leaving this page.
+                        Browser storage may be unavailable or full. Your
+                        latest changes may not persist after leaving
+                        this page.
                       </p>
                     </div>
                   </div>
@@ -777,7 +1008,9 @@ function App() {
                 <div className="section-heading project-heading">
                   <div>
                     <h2>Pick up where you left off</h2>
-                    <p>Your saved creative briefs, ready when you are.</p>
+                    <p>
+                      Your saved creative briefs, ready when you are.
+                    </p>
                   </div>
 
                   <button
@@ -803,12 +1036,15 @@ function App() {
                 <div>
                   <strong>Your ideas deserve a good workflow.</strong>
                   <p>
-                    Start small, find your direction, and build something worth
-                    sharing.
+                    Start small, find your direction, and build something
+                    worth sharing.
                   </p>
                 </div>
 
-                <ArrowDownRight size={20} className="bottom-note-arrow" />
+                <ArrowDownRight
+                  size={20}
+                  className="bottom-note-arrow"
+                />
               </section>
             </>
           )}
@@ -874,11 +1110,14 @@ function App() {
               <div>
                 <strong>AI provider</strong>
                 <p>
-                  No provider connected yet. AI generation is not active.
+                  No provider connected yet. AI generation is not
+                  active.
                 </p>
               </div>
 
-              <span className="connection-status">Not connected</span>
+              <span className="connection-status">
+                Not connected
+              </span>
             </div>
 
             <div className="settings-row">
@@ -970,7 +1209,9 @@ function ProjectGrid({
                 </span>
               </span>
 
-              <span className="preview-category">{project.category}</span>
+              <span className="preview-category">
+                {project.category}
+              </span>
             </button>
 
             <div className="project-card-content">
