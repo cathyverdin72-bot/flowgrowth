@@ -1,9 +1,9 @@
-
 import os
 import threading
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 
@@ -11,9 +11,37 @@ MODEL_ID = os.getenv("GROWTHFLOW_MODEL_ID", "").strip()
 ADAPTER_PATH = os.getenv("GROWTHFLOW_LORA_PATH", "").strip()
 MAX_NEW_TOKENS = int(os.getenv("GROWTHFLOW_MAX_NEW_TOKENS", "700"))
 
+# Set GROWTHFLOW_ALLOWED_ORIGINS to a comma-separated list of trusted
+# frontend origins. Example:
+# https://your-growthflow-site.example,https://another-trusted-site.example
+#
+# Local development origins are allowed by default. Production origins
+# must be explicitly configured in the backend environment.
+DEFAULT_ALLOWED_ORIGINS = (
+    "http://localhost:5173,"
+    "http://127.0.0.1:5173"
+)
+
+ALLOWED_ORIGINS = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "GROWTHFLOW_ALLOWED_ORIGINS",
+        DEFAULT_ALLOWED_ORIGINS,
+    ).split(",")
+    if origin.strip() and origin.strip() != "*"
+]
+
 app = FastAPI(
     title="GrowthFlow Self-Hosted AI Engine",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", "Authorization"],
 )
 
 tokenizer = None
@@ -110,6 +138,7 @@ def generate(request: GenerationRequest) -> GenerationResponse:
         )
 
     idea = request.idea.strip()
+
     if not idea:
         raise HTTPException(
             status_code=422,
@@ -145,7 +174,10 @@ def generate(request: GenerationRequest) -> GenerationResponse:
         )
 
         device = model.get_input_embeddings().weight.device
-        inputs = {key: value.to(device) for key, value in inputs.items()}
+        inputs = {
+            key: value.to(device)
+            for key, value in inputs.items()
+        }
 
         with model_lock, torch.inference_mode():
             output = model.generate(
