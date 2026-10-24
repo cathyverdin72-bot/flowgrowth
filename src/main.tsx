@@ -1,13 +1,13 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import App from "./app";
 import "./index.css";
 
 const rootElement = document.getElementById("root");
 
 if (!rootElement) {
   throw new Error(
-    'GrowthFlow could not start because the root element was not found.',
+    "GrowthFlow could not start because the root element was not found.",
   );
 }
 
