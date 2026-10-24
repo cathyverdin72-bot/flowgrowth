@@ -3,11 +3,8 @@ import os
 import threading
 from typing import Literal
 
-import torch
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
-from peft import PeftModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 MODEL_ID = os.getenv("GROWTHFLOW_MODEL_ID", "").strip()
@@ -53,6 +50,11 @@ def load_model() -> None:
         return
 
     try:
+        # Load heavy AI dependencies only when a model is configured.
+        import torch
+        from peft import PeftModel
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
         tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
         loaded_model = AutoModelForCausalLM.from_pretrained(
@@ -113,6 +115,8 @@ def generate(request: GenerationRequest) -> GenerationResponse:
             status_code=422,
             detail="The idea cannot be empty.",
         )
+
+    import torch
 
     instructions = [
         "You are GrowthFlow, a content production assistant.",
