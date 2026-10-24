@@ -17,7 +17,7 @@ import {
   Lightbulb,
   Menu,
   MessageSquareText,
-  Plus,
+  
   Search,
   Settings2,
   Sparkles,
