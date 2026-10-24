@@ -15,10 +15,12 @@ MODEL_ID = os.getenv(
     "Qwen/Qwen2.5-0.5B-Instruct",
 ).strip()
 
-MAX_NEW_TOKENS = max(
-    16,
-    min(int(os.getenv("GROWTHFLOW_MAX_NEW_TOKENS", "96")), 128),
-)
+try:
+    MAX_NEW_TOKENS = int(os.getenv("GROWTHFLOW_MAX_NEW_TOKENS", "96"))
+except ValueError:
+    MAX_NEW_TOKENS = 96
+
+MAX_NEW_TOKENS = max(16, min(MAX_NEW_TOKENS, 128))
 
 
 def main():
@@ -34,11 +36,19 @@ def main():
     started = time.perf_counter()
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
+    # Explicit float32 on CPU avoids depending on CPU support for the
+    # model's automatically selected low-precision weight format.
+    load_options = {
+        "torch_dtype": torch.float32 if device == "cpu" else "auto",
+        "low_cpu_mem_usage": True,
+    }
+
+    if device == "cuda":
+        load_options["device_map"] = "auto"
+
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_ID,
-        torch_dtype="auto",
-        device_map="auto" if device == "cuda" else None,
-        low_cpu_mem_usage=True,
+        **load_options,
     )
 
     if device == "cpu":
@@ -59,9 +69,9 @@ def main():
             "role": "user",
             "content": (
                 "Create a confident English social post for small business "
-                "owners in Côte d'Ivoire. Announce a new service that helps "
-                "local businesses organize customer enquiries and follow up "
-                "professionally."
+                "owners in Côte d'Ivoire. Announce a service that helps "
+                "local businesses organize customer enquiries and follow "
+                "up professionally."
             ),
         },
     ]
@@ -79,13 +89,16 @@ def main():
         for key, value in inputs.items()
     }
 
+    generation_options = {
+        "max_new_tokens": MAX_NEW_TOKENS,
+        "do_sample": False,
+    }
+
+    if tokenizer.eos_token_id is not None:
+        generation_options["pad_token_id"] = tokenizer.eos_token_id
+
     with torch.inference_mode():
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=MAX_NEW_TOKENS,
-            do_sample=False,
-            pad_token_id=tokenizer.eos_token_id,
-        )
+        outputs = model.generate(**inputs, **generation_options)
 
     prompt_length = inputs["input_ids"].shape[-1]
     result = tokenizer.decode(
