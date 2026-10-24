@@ -9,7 +9,6 @@ from engine import main
 
 
 def make_client(monkeypatch):
-    # Keep tests offline: startup must never download a model.
     monkeypatch.setattr(main, "load_model", lambda: None)
     monkeypatch.setattr(main, "MODEL_ID", "")
     monkeypatch.setattr(main, "ADAPTER_PATH", "")
@@ -109,11 +108,13 @@ def test_generation_returns_expected_api_shape_with_fake_model(monkeypatch):
 
         def __getitem__(self, index):
             if isinstance(index, slice):
+                if len(self.data) == 1:
+                    return self.data[0][index]
                 return self.data[index]
 
             value = self.data[index]
             if isinstance(value, list):
-                return FakeTensor(value)
+                return FakeTensor([value])
             return value
 
     class FakeTokenizer:
@@ -135,7 +136,7 @@ def test_generation_returns_expected_api_shape_with_fake_model(monkeypatch):
 
         def generate(self, **kwargs):
             assert kwargs["max_new_tokens"] == main.MAX_NEW_TOKENS
-            return [FakeTensor([[1, 2, 99, 100]])]
+            return FakeTensor([[1, 2, 99, 100]])
 
     fake_torch = SimpleNamespace(inference_mode=nullcontext)
     monkeypatch.setitem(sys.modules, "torch", fake_torch)
