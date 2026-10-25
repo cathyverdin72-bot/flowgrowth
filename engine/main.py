@@ -58,8 +58,8 @@ class GenerationResponse(BaseModel):
     content: str
     model: str
     adapter: str | None = None
-# Conservative checks for common unsupported marketing claims.
-# This is a heuristic, not a complete fact-checking system.
+# These patterns catch selected high-risk claims. They are not a
+# semantic fact-checker and cannot detect every unsupported statement.
 UNSUPPORTED_CLAIM_PATTERNS = (
     (
         "opening date or weekday",
@@ -71,9 +71,10 @@ UNSUPPORTED_CLAIM_PATTERNS = (
     (
         "specific price or discount",
         re.compile(
-            r"(?:[$€£]|\b(?:FCFA|CFA francs?)\b)\s?\d|"
+            r"(?:[$€£]\s?\d|\b(?:FCFA|CFA francs?)\s?\d)|"
+            r"\b\d+(?:[.,]\d+)?\s?(?:FCFA|CFA francs?)\b|"
             r"\b\d+(?:[.,]\d+)?\s?(?:%|percent|per cent)\b|"
-            r"\b(?:discount|special offer|save \d|half[- ]price|free trial)\b",
+            r"\b(?:discount|special offer|save\s+\d|half[- ]price|free trial)\b",
             re.IGNORECASE,
         ),
     ),
@@ -88,20 +89,40 @@ UNSUPPORTED_CLAIM_PATTERNS = (
         ),
     ),
 )
+# A term mentioned in a prohibition must not count as verified evidence.
+NEGATION_PATTERN = re.compile(
+    r"\b(?:"
+    r"no|not|never|don't|do not|doesn't|does not|"
+    r"didn't|did not|avoid|without|exclude|excluded|"
+    r"prohibit|prohibited|mustn't|must not|shouldn't|should not"
+    r")\b",
+    re.IGNORECASE,
+)
+def _is_explicitly_supported(
+    claim: str,
+    source_brief: str,
+) -> bool:
+    """Check for the same claim in the brief, excluding obvious negation."""
+    for match in re.finditer(re.escape(claim), source_brief, re.IGNORECASE):
+        before = source_brief[max(0, match.start() - 60):match.start()]
+        after = source_brief[match.end():match.end() + 35]
+        if NEGATION_PATTERN.search(before):
+            continue
+        if NEGATION_PATTERN.search(after):
+            continue
+        return True
+    return False
 def find_unsupported_claims(
     content: str,
     source_brief: str,
 ) -> list[str]:
-    """Identify known high-risk claims absent from the supplied brief."""
+    """Flag selected claims not clearly supported by the supplied brief."""
     findings = []
-    normalized_brief = source_brief.casefold()
     for label, pattern in UNSUPPORTED_CLAIM_PATTERNS:
-        matches = pattern.findall(content)
-        if matches and not all(
-            str(match).casefold() in normalized_brief
-            for match in matches
-        ):
-            findings.append(label)
+        for match in pattern.finditer(content):
+            if not _is_explicitly_supported(match.group(0), source_brief):
+                findings.append(label)
+                break
     return findings
 def load_model() -> None:
     """Load the configured open-weight model during application startup."""
