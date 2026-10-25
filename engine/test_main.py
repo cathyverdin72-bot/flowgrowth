@@ -120,7 +120,11 @@ def test_generation_returns_expected_api_shape_with_fake_model(monkeypatch):
     class FakeTokenizer:
         eos_token_id = 0
 
+        def __init__(self):
+            self.messages = None
+
         def apply_chat_template(self, messages, **kwargs):
+            self.messages = messages
             assert messages[0]["role"] == "system"
             assert messages[1]["role"] == "user"
             assert kwargs["add_generation_prompt"] is True
@@ -149,11 +153,13 @@ def test_generation_returns_expected_api_shape_with_fake_model(monkeypatch):
         "language": "English",
     }
 
+    fake_tokenizer = FakeTokenizer()
+
     with make_client(monkeypatch) as client:
         monkeypatch.setattr(main, "MODEL_ID", "test/local-model")
         monkeypatch.setattr(main, "ADAPTER_PATH", "")
         monkeypatch.setattr(main, "model", FakeModel())
-        monkeypatch.setattr(main, "tokenizer", FakeTokenizer())
+        monkeypatch.setattr(main, "tokenizer", fake_tokenizer)
 
         response = client.post("/v1/generate", json=payload)
 
@@ -164,3 +170,11 @@ def test_generation_returns_expected_api_shape_with_fake_model(monkeypatch):
     assert data["adapter"] is None
     assert isinstance(data["id"], str)
     assert len(data["id"]) == 32
+
+    system_prompt = fake_tokenizer.messages[0]["content"].lower()
+    assert "never invent" in system_prompt
+    assert "prices" in system_prompt
+    assert "discounts" in system_prompt
+    assert "guarantees" in system_prompt
+    assert "write complete, coherent content" in system_prompt
+    assert "do not invent a booking method or offer" in system_prompt
