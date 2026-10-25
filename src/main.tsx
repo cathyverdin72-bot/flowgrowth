@@ -1,18 +1,18 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./app";
+import AuthGate from "./auth-gate";
 import "./index.css";
-
 const rootElement = document.getElementById("root");
-
 if (!rootElement) {
   throw new Error(
     "GrowthFlow could not start because the root element was not found.",
   );
 }
-
 createRoot(rootElement).render(
   <StrictMode>
-    <App />
+    <AuthGate>
+      <App />
+    </AuthGate>
   </StrictMode>,
 );
