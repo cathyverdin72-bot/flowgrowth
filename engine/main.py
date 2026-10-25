@@ -72,7 +72,7 @@ UNSUPPORTED_CLAIM_PATTERNS = (
         "specific price or discount",
         re.compile(
             r"(?:[$€£]\s?\d|\b(?:FCFA|CFA francs?)\s?\d)|"
-            r"\b\d+(?:[.,]\d+)?\s?(?:FCFA|CFA francs?)\b|"
+            r"\b\d+(?:[.,]\d+)?\s?(?:FCFA|CFA(?:\s+francs?)?)\b|"
             r"\b\d+(?:[.,]\d+)?\s?(?:%|percent|per cent)\b|"
             r"\b(?:discount|special offer|save\s+\d|half[- ]price|free trial)\b",
             re.IGNORECASE,
