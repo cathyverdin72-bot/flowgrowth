@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   generateContent,
   type ContentFormat,
 } from "./lib/generation";
+import {
+  readBackupFile,
+  downloadBackup,
+  type GrowthFlowProject,
+} from "./lib/project-backup";
 import {
   ArrowDownRight,
   ArrowRight,
@@ -27,21 +32,11 @@ import {
   WandSparkles,
   X,
   Trash2,
+  Download,
+  Upload,
 } from "lucide-react";
-
-type Project = {
-  id: string;
-  title: string;
-  category: ContentFormat;
-  idea: string;
-  updated: string;
-  iconKey: "story" | "social" | "video" | "image";
-  color: string;
-  generatedContent?: string;
-};
-
+type Project = GrowthFlowProject;
 const STORAGE_KEY = "growthflow_projects_v1";
-
 const formats: {
   name: ContentFormat;
   description: string;
@@ -68,7 +63,6 @@ const formats: {
     icon: Image,
   },
 ];
-
 const iconForFormat: Record<
   ContentFormat,
   Project["iconKey"]
@@ -78,7 +72,6 @@ const iconForFormat: Record<
   "Video script": "video",
   "Image concept": "image",
 };
-
 const initialProjects: Project[] = [
   {
     id: "sample-story",
@@ -108,21 +101,12 @@ const initialProjects: Project[] = [
     color: "blue",
   },
 ];
-
 function readProjects(): Project[] {
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-
-    if (!saved) {
-      return initialProjects;
-    }
-
+    if (!saved) return initialProjects;
     const parsed: unknown = JSON.parse(saved);
-
-    if (!Array.isArray(parsed)) {
-      return initialProjects;
-    }
-
+    if (!Array.isArray(parsed)) return initialProjects;
     return parsed.filter(
       (item): item is Project =>
         typeof item === "object" &&
@@ -145,7 +129,6 @@ function readProjects(): Project[] {
     return initialProjects;
   }
 }
-
 function App() {
   const [activeNav, setActiveNav] = useState("Workspace");
   const [format, setFormat] =
@@ -164,7 +147,10 @@ function App() {
   const [editingProjectId, setEditingProjectId] =
     useState<string | null>(null);
   const [storageError, setStorageError] = useState(false);
-
+  const backupInputRef = useRef<HTMLInputElement>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupMessage, setBackupMessage] = useState("");
+  const [backupError, setBackupError] = useState("");
   useEffect(() => {
     try {
       window.localStorage.setItem(
@@ -176,26 +162,19 @@ function App() {
       setStorageError(true);
     }
   }, [projects]);
-
   const filteredProjects = projects.filter((project) =>
-    project.title
-      .toLowerCase()
-      .includes(searchTerm.toLowerCase()),
+    project.title.toLowerCase().includes(searchTerm.toLowerCase()),
   );
-
   function handleCreate() {
     const cleanIdea = idea.trim();
-
     if (!cleanIdea) {
       setResult("Enter an idea before saving your brief.");
       return;
     }
-
     const now = new Date().toLocaleString(undefined, {
       dateStyle: "medium",
       timeStyle: "short",
     });
-
     if (editingProjectId) {
       setProjects((current) =>
         current.map((project) =>
@@ -216,7 +195,6 @@ function App() {
             : project,
         ),
       );
-
       setResult("Your changes have been saved on this device.");
     } else {
       const newProject: Project = {
@@ -235,15 +213,12 @@ function App() {
                 ? "mint"
                 : "violet",
       };
-
       setProjects((current) => [newProject, ...current]);
       setEditingProjectId(newProject.id);
       setResult("Your brief has been saved on this device.");
     }
-
     setActiveNav("Workspace");
   }
-
   function openProject(project: Project) {
     setEditingProjectId(project.id);
     setIdea(project.idea);
@@ -254,10 +229,8 @@ function App() {
     setResult("");
     setActiveNav("Workspace");
     setShowMobileNav(false);
-
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-
   function startNewBrief() {
     setEditingProjectId(null);
     setIdea("");
@@ -268,35 +241,26 @@ function App() {
     setResult("");
     setActiveNav("Workspace");
   }
-
   async function handleGenerate() {
     const cleanIdea = idea.trim();
-
     if (!cleanIdea) {
-      setGenerationError(
-        "Enter an idea before generating content.",
-      );
+      setGenerationError("Enter an idea before generating content.");
       return;
     }
-
     setIsGenerating(true);
     setGenerationError("");
     setResult("");
-
     try {
       const response = await generateContent({
         idea: cleanIdea,
         format,
       });
-
       const now = new Date().toLocaleString(undefined, {
         dateStyle: "medium",
         timeStyle: "short",
       });
-
       setGeneratedContent(response.content);
       setGenerationModel(response.model);
-
       if (editingProjectId) {
         setProjects((current) =>
           current.map((project) =>
@@ -331,11 +295,9 @@ function App() {
                   ? "mint"
                   : "violet",
         };
-
         setProjects((current) => [newProject, ...current]);
         setEditingProjectId(newProject.id);
       }
-
       setResult(
         "Generated content and saved it with this brief on this device.",
       );
@@ -349,47 +311,111 @@ function App() {
       setIsGenerating(false);
     }
   }
-
   async function copyGeneratedContent() {
     try {
       await navigator.clipboard.writeText(generatedContent);
       setResult("Generated content copied to clipboard.");
     } catch {
       setGenerationError(
-        "Clipboard access is unavailable in this browser. Select the text and copy it manually.",
+        "Clipboard access is unavailable. Select the text and copy it manually.",
       );
     }
   }
-
   function deleteProject(project: Project) {
     const confirmed = window.confirm(
       `Delete "${project.title}" from this device? This cannot be undone.`,
     );
-
-    if (!confirmed) {
-      return;
-    }
-
+    if (!confirmed) return;
     setProjects((current) =>
       current.filter((item) => item.id !== project.id),
     );
-
     if (editingProjectId === project.id) {
       startNewBrief();
     }
-
     setResult("Project deleted from this device.");
   }
-
   function selectNav(name: string) {
     setActiveNav(name);
     setShowMobileNav(false);
-
     if (name === "Settings") {
       setShowSettings(true);
     }
   }
-
+  function handleExportBackup() {
+    setBackupMessage("");
+    setBackupError("");
+    try {
+      downloadBackup(projects);
+      setBackupMessage(
+        `Backup created for ${projects.length} project(s). Keep the downloaded file somewhere safe.`,
+      );
+    } catch (error) {
+      setBackupError(
+        error instanceof Error
+          ? error.message
+          : "The backup could not be created.",
+      );
+    }
+  }
+  async function handleBackupSelected(
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+    // Allow selecting the same file again after a failed attempt.
+    event.target.value = "";
+    if (!file) return;
+    setBackupBusy(true);
+    setBackupMessage("");
+    setBackupError("");
+    try {
+      const validation = await readBackupFile(file);
+      if (!validation.valid) {
+        setBackupError(validation.error);
+        return;
+      }
+      const backup = validation.backup;
+      const existingIds = new Set(projects.map((project) => project.id));
+      const projectsToAdd = backup.projects.filter(
+        (project) => !existingIds.has(project.id),
+      );
+      const skipped = backup.projects.length - projectsToAdd.length;
+      if (projectsToAdd.length === 0) {
+        setBackupMessage(
+          `The backup is valid, but no projects were added. ${skipped} project(s) already exist in this workspace.`,
+        );
+        return;
+      }
+      const confirmed = window.confirm(
+        `This backup contains ${backup.projectCount} project(s). ` +
+          `${projectsToAdd.length} new project(s) will be added and ` +
+          `${skipped} matching project(s) will be skipped. ` +
+          `Existing projects will not be overwritten. Continue?`,
+      );
+      if (!confirmed) {
+        setBackupMessage("Restore cancelled. Your projects were not changed.");
+        return;
+      }
+      // Recheck against the latest state before merging.
+      setProjects((current) => {
+        const currentIds = new Set(
+          current.map((project) => project.id),
+        );
+        const additions = backup.projects.filter(
+          (project) => !currentIds.has(project.id),
+        );
+        return [...additions, ...current];
+      });
+      setBackupMessage(
+        `Restore processed: ${projectsToAdd.length} project(s) selected to add; ${skipped} matching project(s) skipped. Your existing projects were preserved.`,
+      );
+    } catch {
+      setBackupError(
+        "The backup could not be processed. Your existing projects have not been intentionally replaced.",
+      );
+    } finally {
+      setBackupBusy(false);
+    }
+  }
   return (
     <div className="app-shell">
       {showMobileNav && (
@@ -399,7 +425,6 @@ function App() {
           onClick={() => setShowMobileNav(false)}
         />
       )}
-
       <aside
         className={`sidebar ${showMobileNav ? "sidebar-open" : ""}`}
       >
@@ -415,11 +440,9 @@ function App() {
           <span className="brand-mark">
             <Layers3 size={21} strokeWidth={2.2} />
           </span>
-
           <span className="brand-name">
             Growth<span>Flow</span>
           </span>
-
           <button
             className="icon-button mobile-close"
             aria-label="Close menu"
@@ -431,49 +454,36 @@ function App() {
             <X size={18} />
           </button>
         </a>
-
         <button
           className="workspace-switcher"
           onClick={() => setShowSettings(true)}
         >
           <span className="workspace-avatar">G</span>
-
           <span className="workspace-info">
             <strong>Creative Studio</strong>
             <span>Personal workspace</span>
           </span>
-
           <ChevronDown size={16} className="muted-icon" />
         </button>
-
         <div className="sidebar-label">WORKSPACE</div>
-
         <nav className="nav-list" aria-label="Main navigation">
           <button
-            className={`nav-item ${
-              activeNav === "Workspace" ? "active" : ""
-            }`}
+            className={`nav-item ${activeNav === "Workspace" ? "active" : ""}`}
             onClick={() => selectNav("Workspace")}
           >
             <Layers3 size={18} />
             <span>Workspace</span>
           </button>
-
           <button
-            className={`nav-item ${
-              activeNav === "Discover" ? "active" : ""
-            }`}
+            className={`nav-item ${activeNav === "Discover" ? "active" : ""}`}
             onClick={() => selectNav("Discover")}
           >
             <Lightbulb size={18} />
             <span>Discover ideas</span>
             <span className="nav-new">NEW</span>
           </button>
-
           <button
-            className={`nav-item ${
-              activeNav === "Projects" ? "active" : ""
-            }`}
+            className={`nav-item ${activeNav === "Projects" ? "active" : ""}`}
             onClick={() => selectNav("Projects")}
           >
             <FileText size={18} />
@@ -481,16 +491,10 @@ function App() {
             <span className="nav-count">{projects.length}</span>
           </button>
         </nav>
-
-        <div className="sidebar-label sidebar-label-spaced">
-          CREATE
-        </div>
-
+        <div className="sidebar-label sidebar-label-spaced">CREATE</div>
         <nav className="nav-list" aria-label="Creation tools">
           <button
-            className={`nav-item ${
-              activeNav === "Stories" ? "active" : ""
-            }`}
+            className={`nav-item ${activeNav === "Stories" ? "active" : ""}`}
             onClick={() => {
               setFormat("Story");
               selectNav("Stories");
@@ -499,11 +503,8 @@ function App() {
             <BookOpen size={18} />
             <span>Story studio</span>
           </button>
-
           <button
-            className={`nav-item ${
-              activeNav === "Video" ? "active" : ""
-            }`}
+            className={`nav-item ${activeNav === "Video" ? "active" : ""}`}
             onClick={() => {
               setFormat("Video script");
               selectNav("Video");
@@ -512,11 +513,8 @@ function App() {
             <Clapperboard size={18} />
             <span>Video studio</span>
           </button>
-
           <button
-            className={`nav-item ${
-              activeNav === "Visuals" ? "active" : ""
-            }`}
+            className={`nav-item ${activeNav === "Visuals" ? "active" : ""}`}
             onClick={() => {
               setFormat("Image concept");
               selectNav("Visuals");
@@ -526,17 +524,13 @@ function App() {
             <span>Visual studio</span>
           </button>
         </nav>
-
         <div className="sidebar-spacer" />
-
         <div className="sidebar-help">
           <div className="help-icon">
             <CircleHelp size={19} />
           </div>
-
           <strong>Make something great.</strong>
           <p>Your next idea could be your best one yet.</p>
-
           <button
             className="help-link"
             onClick={() =>
@@ -548,25 +542,19 @@ function App() {
             Explore the workspace <ArrowRight size={14} />
           </button>
         </div>
-
         <button
-          className={`nav-item settings-nav ${
-            showSettings ? "active" : ""
-          }`}
+          className={`nav-item settings-nav ${showSettings ? "active" : ""}`}
           onClick={() => setShowSettings(true)}
         >
           <Settings2 size={18} />
           <span>Settings</span>
         </button>
-
         <div className="sidebar-footer">
           <div className="profile-avatar">A</div>
-
           <div className="profile-info">
             <strong>Studio owner</strong>
             <span>Free workspace</span>
           </div>
-
           <button
             className="icon-button"
             aria-label="Workspace settings"
@@ -576,7 +564,6 @@ function App() {
           </button>
         </div>
       </aside>
-
       <main className="main-panel" id="workspace">
         <header className="topbar">
           <div className="topbar-left">
@@ -587,32 +574,25 @@ function App() {
             >
               <Menu size={21} />
             </button>
-
             <div className="breadcrumb">
               <span>GrowthFlow</span>
               <span className="breadcrumb-slash">/</span>
               <strong>{activeNav}</strong>
             </div>
           </div>
-
           <div className="topbar-actions">
             <div className="search-box">
               <Search size={16} />
-
               <input
                 aria-label="Search projects"
                 placeholder="Search projects..."
                 value={searchTerm}
-                onChange={(event) =>
-                  setSearchTerm(event.target.value)
-                }
+                onChange={(event) => setSearchTerm(event.target.value)}
               />
-
               <span className="search-shortcut">
                 <Command size={11} /> K
               </span>
             </div>
-
             <button
               className="icon-button topbar-settings"
               aria-label="Settings"
@@ -620,25 +600,19 @@ function App() {
             >
               <Settings2 size={18} />
             </button>
-
             <div className="profile-avatar top-avatar">A</div>
           </div>
         </header>
-
         <div className="content-area">
           {activeNav === "Discover" ? (
             <section className="secondary-page">
               <span className="eyebrow">
                 <Lightbulb size={14} /> IDEA EXPLORER
               </span>
-
               <h1>Every great thing starts with an idea.</h1>
-
               <p className="page-subtitle">
-                Choose a starting point, then turn it into something of
-                your own.
+                Choose a starting point, then turn it into something of your own.
               </p>
-
               <div className="idea-prompt-grid">
                 {[
                   "Tell a story about an unexpected opportunity.",
@@ -666,34 +640,24 @@ function App() {
               <span className="eyebrow">
                 <FileText size={14} /> YOUR LIBRARY
               </span>
-
               <h1>My projects</h1>
-
               <p className="page-subtitle">
                 Your saved creative briefs, stored on this device.
               </p>
-
-              <button
-                className="primary-button"
-                onClick={startNewBrief}
-              >
+              <button className="primary-button" onClick={startNewBrief}>
                 New brief <ArrowRight size={16} />
               </button>
-
               <ProjectGrid
                 projects={filteredProjects}
                 onOpen={openProject}
                 onDelete={deleteProject}
               />
             </section>
-          ) : activeNav === "Stories" ||
-            activeNav === "Video" ||
-            activeNav === "Visuals" ? (
+          ) : ["Stories", "Video", "Visuals"].includes(activeNav) ? (
             <section className="secondary-page">
               <span className="eyebrow">
                 <WandSparkles size={14} /> CREATIVE STUDIO
               </span>
-
               <h1>
                 {activeNav === "Stories"
                   ? "Story studio"
@@ -701,12 +665,9 @@ function App() {
                     ? "Video studio"
                     : "Visual studio"}
               </h1>
-
               <p className="page-subtitle">
-                Start with a brief. Shape your idea into a creative
-                direction.
+                Start with a brief. Shape your idea into a creative direction.
               </p>
-
               <button
                 className="primary-button"
                 onClick={() => setActiveNav("Workspace")}
@@ -722,33 +683,26 @@ function App() {
                     <span className="eyebrow-dot" />
                     YOUR CREATIVE WORKSPACE
                   </div>
-
                   <h1>
                     Ideas become{" "}
                     <span className="gradient-text">something.</span>
                   </h1>
-
                   <p className="welcome-description">
                     Think it. Shape it. Bring it to life.
-                    <br className="desktop-break" /> Your creative
-                    process starts here.
+                    <br className="desktop-break" /> Your creative process starts here.
                   </p>
                 </div>
-
                 <div className="welcome-art" aria-hidden="true">
                   <div className="art-orbit orbit-one" />
                   <div className="art-orbit orbit-two" />
-
                   <div className="art-core">
                     <Sparkles size={31} strokeWidth={1.4} />
                   </div>
-
                   <span className="art-star star-one">✳</span>
                   <span className="art-star star-two">✦</span>
                   <span className="art-star star-three">·</span>
                 </div>
               </section>
-
               <section className="composer-section">
                 <div className="section-heading">
                   <div>
@@ -757,24 +711,20 @@ function App() {
                         ? "Continue your brief"
                         : "What are we creating today?"}
                     </h2>
-
                     <p>
                       {editingProjectId
                         ? "Update your idea and save your changes."
                         : "Start with an idea. You can refine it as you go."}
                     </p>
                   </div>
-
                   <span className="step-indicator">
                     01 <span>/ 03</span>
                   </span>
                 </div>
-
                 <div className="composer-card">
                   <label className="field-label" htmlFor="idea-input">
                     YOUR STARTING IDEA
                   </label>
-
                   <textarea
                     id="idea-input"
                     value={idea}
@@ -789,42 +739,29 @@ function App() {
                     rows={4}
                     maxLength={10000}
                   />
-
                   <div className="composer-bottom">
                     <span className="input-hint">
-                      <Sparkles size={14} /> A rough idea is enough to
-                      begin.
+                      <Sparkles size={14} /> A rough idea is enough to begin.
                     </span>
-
-                    <span className="character-count">
-                      {idea.length} / 10000
-                    </span>
+                    <span className="character-count">{idea.length} / 10000</span>
                   </div>
-
                   <div className="composer-divider" />
-
                   <div className="format-heading">
                     <div>
-                      <span className="field-label">
-                        CHOOSE YOUR FORMAT
-                      </span>
+                      <span className="field-label">CHOOSE YOUR FORMAT</span>
                       <span className="format-subtitle">
                         What should this become?
                       </span>
                     </div>
                   </div>
-
                   <div className="format-grid">
                     {formats.map((item) => {
                       const FormatIcon = item.icon;
                       const selected = format === item.name;
-
                       return (
                         <button
                           key={item.name}
-                          className={`format-option ${
-                            selected ? "format-selected" : ""
-                          }`}
+                          className={`format-option ${selected ? "format-selected" : ""}`}
                           onClick={() => {
                             setFormat(item.name);
                             setGeneratedContent("");
@@ -836,12 +773,10 @@ function App() {
                           <span className="format-icon">
                             <FormatIcon size={19} />
                           </span>
-
                           <span className="format-copy">
                             <strong>{item.name}</strong>
                             <small>{item.description}</small>
                           </span>
-
                           <span className="format-check">
                             {selected && <Check size={13} />}
                           </span>
@@ -849,12 +784,10 @@ function App() {
                       );
                     })}
                   </div>
-
                   <div className="composer-actions">
                     <span className="privacy-note">
                       <Settings2 size={14} /> Saved on this device.
                     </span>
-
                     <div
                       style={{
                         display: "flex",
@@ -869,60 +802,44 @@ function App() {
                         disabled={!idea.trim() || isGenerating}
                       >
                         <Sparkles size={15} />
-                        {isGenerating
-                          ? "Generating..."
-                          : "Generate content"}
+                        {isGenerating ? "Generating..." : "Generate content"}
                       </button>
-
                       {editingProjectId && (
-                        <button
-                          className="text-button"
-                          onClick={startNewBrief}
-                        >
+                        <button className="text-button" onClick={startNewBrief}>
                           Cancel edit
                         </button>
                       )}
-
                       <button
                         className="primary-button"
                         onClick={handleCreate}
                         disabled={!idea.trim()}
                       >
-                        {editingProjectId
-                          ? "Save changes"
-                          : "Save brief"}
+                        {editingProjectId ? "Save changes" : "Save brief"}
                         <ArrowRight size={16} />
                       </button>
                     </div>
                   </div>
                 </div>
-
                 {isGenerating && (
                   <div className="result-notice" role="status">
                     <span className="result-icon">
                       <Sparkles size={17} />
                     </span>
-
                     <div>
                       <strong>Creating your content</strong>
                       <p>
-                        GrowthFlow is waiting for the generation service
-                        to respond. This can take a little while.
+                        GrowthFlow is waiting for the generation service to respond.
+                        This can take a little while.
                       </p>
                     </div>
                   </div>
                 )}
-
                 {generationError && (
-                  <div
-                    className="result-notice generation-error"
-                    role="alert"
-                  >
+                  <div className="result-notice generation-error" role="alert">
                     <div>
                       <strong>Generation could not complete</strong>
                       <p>{generationError}</p>
                     </div>
-
                     <button
                       className="icon-button"
                       aria-label="Dismiss generation error"
@@ -932,7 +849,6 @@ function App() {
                     </button>
                   </div>
                 )}
-
                 {generatedContent && (
                   <section
                     className="generated-output"
@@ -943,56 +859,42 @@ function App() {
                         <span className="eyebrow">
                           <Sparkles size={14} /> GENERATED RESULT
                         </span>
-
-                        <h2 id="generated-output-title">
-                          Your content
-                        </h2>
-
+                        <h2 id="generated-output-title">Your content</h2>
                         <p>
                           {generationModel
                             ? `Model: ${generationModel}`
                             : "Saved with this brief on this device."}
                         </p>
                       </div>
-
-                      <button
-                        className="text-button"
-                        onClick={copyGeneratedContent}
-                      >
+                      <button className="text-button" onClick={copyGeneratedContent}>
                         <FileText size={15} /> Copy text
                       </button>
                     </div>
-
                     <div className="generated-output-content">
                       {generatedContent}
                     </div>
                   </section>
                 )}
-
                 {storageError && (
                   <div className="result-notice" role="alert">
                     <div>
                       <strong>Could not save projects</strong>
                       <p>
-                        Browser storage may be unavailable or full. Your
-                        latest changes may not persist after leaving
-                        this page.
+                        Browser storage may be unavailable or full. Your latest
+                        changes may not persist after leaving this page.
                       </p>
                     </div>
                   </div>
                 )}
-
                 {result && (
                   <div className="result-notice" role="status">
                     <span className="result-icon">
                       <Check size={17} />
                     </span>
-
                     <div>
                       <strong>Workspace update</strong>
                       <p>{result}</p>
                     </div>
-
                     <button
                       className="icon-button"
                       aria-label="Dismiss message"
@@ -1003,16 +905,12 @@ function App() {
                   </div>
                 )}
               </section>
-
               <section className="projects-section">
                 <div className="section-heading project-heading">
                   <div>
                     <h2>Pick up where you left off</h2>
-                    <p>
-                      Your saved creative briefs, ready when you are.
-                    </p>
+                    <p>Your saved creative briefs, ready when you are.</p>
                   </div>
-
                   <button
                     className="text-button"
                     onClick={() => setActiveNav("Projects")}
@@ -1020,46 +918,34 @@ function App() {
                     View all <ArrowRight size={15} />
                   </button>
                 </div>
-
                 <ProjectGrid
                   projects={filteredProjects.slice(0, 3)}
                   onOpen={openProject}
                   onDelete={deleteProject}
                 />
               </section>
-
               <section className="bottom-note">
                 <div className="bottom-note-icon">
                   <AudioLines size={17} />
                 </div>
-
                 <div>
                   <strong>Your ideas deserve a good workflow.</strong>
                   <p>
-                    Start small, find your direction, and build something
-                    worth sharing.
+                    Start small, find your direction, and build something worth sharing.
                   </p>
                 </div>
-
-                <ArrowDownRight
-                  size={20}
-                  className="bottom-note-arrow"
-                />
+                <ArrowDownRight size={20} className="bottom-note-arrow" />
               </section>
             </>
           )}
-
           <footer className="page-footer">
             <span>
-              GrowthFlow <span className="footer-dot">·</span> Creative
-              intelligence
+              GrowthFlow <span className="footer-dot">·</span> Creative intelligence
             </span>
-
             <span>Built for ideas in motion.</span>
           </footer>
         </div>
       </main>
-
       {showSettings && (
         <div
           className="modal-backdrop"
@@ -1081,7 +967,6 @@ function App() {
                 <span className="eyebrow">WORKSPACE</span>
                 <h2 id="settings-title">Settings</h2>
               </div>
-
               <button
                 className="icon-button"
                 aria-label="Close settings"
@@ -1090,49 +975,115 @@ function App() {
                 <X size={19} />
               </button>
             </div>
-
             <div className="settings-row">
               <span className="settings-row-icon">
                 <Layers3 size={18} />
               </span>
-
               <div>
                 <strong>Creative Studio</strong>
                 <p>Your personal GrowthFlow workspace.</p>
               </div>
             </div>
-
             <div className="settings-row">
               <span className="settings-row-icon">
                 <Sparkles size={18} />
               </span>
-
               <div>
-                <strong>AI provider</strong>
+                <strong>Content generation</strong>
                 <p>
-                  No provider connected yet. AI generation is not
-                  active.
+                  Generate content from a brief using the configured generation
+                  service.
                 </p>
               </div>
-
-              <span className="connection-status">
-                Not connected
-              </span>
             </div>
-
             <div className="settings-row">
               <span className="settings-row-icon">
                 <Clock3 size={18} />
               </span>
-
               <div>
                 <strong>Project storage</strong>
-                <p>
-                  {projects.length} project(s) stored in this browser.
-                </p>
+                <p>{projects.length} project(s) stored in this browser.</p>
               </div>
             </div>
-
+            <div className="settings-row">
+              <span className="settings-row-icon">
+                <Download size={18} />
+              </span>
+              <div>
+                <strong>Export your projects</strong>
+                <p>
+                  Download a JSON backup containing your briefs and generated
+                  content. Store the file somewhere safe.
+                </p>
+                <button
+                  className="text-button"
+                  onClick={handleExportBackup}
+                  disabled={backupBusy}
+                >
+                  <Download size={15} /> Export backup
+                </button>
+              </div>
+            </div>
+            <div className="settings-row">
+              <span className="settings-row-icon">
+                <Upload size={18} />
+              </span>
+              <div>
+                <strong>Restore from backup</strong>
+                <p>
+                  Validate a GrowthFlow backup and add projects that are not
+                  already in this workspace. Existing projects are not overwritten.
+                </p>
+                <input
+                  ref={backupInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleBackupSelected}
+                  disabled={backupBusy}
+                  aria-label="Choose a GrowthFlow backup JSON file"
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    marginTop: "10px",
+                    fontSize: "13px",
+                  }}
+                />
+                <button
+                  className="text-button"
+                  onClick={() => backupInputRef.current?.click()}
+                  disabled={backupBusy}
+                >
+                  <Upload size={15} />
+                  {backupBusy ? "Validating backup..." : "Choose backup file"}
+                </button>
+              </div>
+            </div>
+            {backupMessage && (
+              <div className="result-notice" role="status">
+                <span className="result-icon">
+                  <Check size={17} />
+                </span>
+                <div>
+                  <strong>Backup update</strong>
+                  <p>{backupMessage}</p>
+                </div>
+              </div>
+            )}
+            {backupError && (
+              <div className="result-notice generation-error" role="alert">
+                <div>
+                  <strong>Backup could not be processed</strong>
+                  <p>{backupError}</p>
+                </div>
+                <button
+                  className="icon-button"
+                  aria-label="Dismiss backup error"
+                  onClick={() => setBackupError("")}
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
             <button
               className="primary-button modal-done"
               onClick={() => setShowSettings(false)}
@@ -1145,7 +1096,6 @@ function App() {
     </div>
   );
 }
-
 function ProjectGrid({
   projects,
   onOpen,
@@ -1164,7 +1114,6 @@ function ProjectGrid({
       </div>
     );
   }
-
   return (
     <div className="project-grid">
       {projects.map((project, index) => {
@@ -1176,7 +1125,6 @@ function ProjectGrid({
               : project.iconKey === "image"
                 ? Image
                 : MessageSquareText;
-
         return (
           <article className="project-card" key={project.id}>
             <button
@@ -1194,26 +1142,19 @@ function ProjectGrid({
                 <span className="preview-brand">
                   <Layers3 size={13} /> GF / STUDIO
                 </span>
-
                 <span className="preview-number">
                   {String(index + 1).padStart(2, "0")}
                 </span>
               </span>
-
               <span className="preview-artwork">
                 <span className="preview-ring ring-large" />
                 <span className="preview-ring ring-small" />
-
                 <span className="preview-symbol">
                   <ProjectIcon size={27} strokeWidth={1.5} />
                 </span>
               </span>
-
-              <span className="preview-category">
-                {project.category}
-              </span>
+              <span className="preview-category">{project.category}</span>
             </button>
-
             <div className="project-card-content">
               <button
                 onClick={() => onOpen(project)}
@@ -1234,7 +1175,6 @@ function ProjectGrid({
                   <Clock3 size={12} /> {project.updated}
                 </p>
               </button>
-
               <div style={{ display: "flex", gap: "4px" }}>
                 <button
                   className="project-open"
@@ -1243,7 +1183,6 @@ function ProjectGrid({
                 >
                   <ArrowRight size={16} />
                 </button>
-
                 <button
                   className="project-open"
                   aria-label={`Delete ${project.title}`}
@@ -1260,5 +1199,4 @@ function ProjectGrid({
     </div>
   );
 }
-
 export default App;
