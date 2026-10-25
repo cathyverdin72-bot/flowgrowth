@@ -79,9 +79,8 @@ class GenerationResponse(BaseModel):
     adapter: str | None = None
 
 
-# These patterns flag selected high-risk claims. They are deliberately
-# conservative, but they are not a semantic fact-checker and cannot
-# detect every unsupported statement or paraphrase.
+# These patterns flag selected high-risk claims. This is a conservative
+# text-pattern safeguard, not a semantic fact-checker.
 UNSUPPORTED_CLAIM_PATTERNS = (
     (
         "opening date or weekday",
@@ -93,10 +92,13 @@ UNSUPPORTED_CLAIM_PATTERNS = (
     (
         "specific price or discount",
         re.compile(
-            r"(?:[$€£]\s?\d|\b(?:FCFA|CFA francs?)\s?\d)|"
+            r"(?:[$€£]\s?\d|"
+            r"\b(?:FCFA|CFA francs?)\s?\d|"
             r"\b\d+(?:[.,]\d+)?\s?(?:FCFA|CFA(?:\s+francs?)?)\b|"
-            r"\b\d+(?:[.,]\d+)?\s?(?:%|percent|per cent)\b|"
-            r"\b(?:discount|special offers?|save\s+\d|half[- ]price|free trial)\b",
+            r"\b\d+(?:[.,]\d+)?\s?%(?!\w)|"
+            r"\b\d+(?:[.,]\d+)?\s?(?:percent|per cent)\b|"
+            r"\b(?:discount|special offers?|half[- ]price|free trial|free delivery)\b|"
+            r"\bsave\s+\d+(?:[.,]\d+)?%?)",
             re.IGNORECASE,
         ),
     ),
@@ -133,7 +135,7 @@ UNSUPPORTED_CLAIM_PATTERNS = (
             r"thrilled to announce|excited to announce|"
             r"we ensure|we guarantee|our services include|"
             r"including SUVs|minivans|trucks|"
-            r"team of professionals)\b",
+            r"team of professionals|team working tirelessly)\b",
             re.IGNORECASE,
         ),
     ),
@@ -157,7 +159,7 @@ UNSUPPORTED_CLAIM_PATTERNS = (
 )
 
 
-# A term mentioned in a prohibition must not count as verified evidence.
+# A prohibited or negated mention must not count as verified evidence.
 NEGATION_PATTERN = re.compile(
     r"\b(?:"
     r"no|not|never|don't|do not|doesn't|does not|"
@@ -175,8 +177,8 @@ def _is_explicitly_supported(
     """
     Accept an exact claim only when it appears without obvious negation.
 
-    This is a simple textual check. It does not establish that a claim
-    is factually true or that the surrounding context supports it.
+    This textual check does not establish that a claim is true or that
+    the surrounding context supports it.
     """
     for match in re.finditer(re.escape(claim), source_brief, re.IGNORECASE):
         before = source_brief[max(0, match.start() - 60):match.start()]
@@ -200,8 +202,8 @@ def find_unsupported_claims(
     """
     Flag selected high-risk claims not explicitly supported by the brief.
 
-    This function is a pattern-based safeguard, not a complete semantic
-    verifier. It may miss paraphrased claims and may flag safe wording.
+    This is a pattern-based safeguard. It can miss paraphrases and may
+    flag safe wording. It is not a complete semantic verifier.
     """
     findings = []
 
