@@ -192,7 +192,7 @@ def test_generation_rejects_oversized_idea(monkeypatch):
         ),
         (
             "Our team is working tirelessly for you.",
-            "unverified business capability or credential",
+            "unverified staff, customer, or service claim",
         ),
         (
             "Our services include trucks and minivans.",
@@ -267,12 +267,12 @@ def test_claim_checker_flags_unverified_claim_even_if_related_fact_is_present():
 
 
 def test_generation_returns_502_for_unsupported_claim(monkeypatch):
-    tokenizer = install_fake_model(
-        monkeypatch,
-        "We open our doors on Monday!",
-    )
-
     with make_client(monkeypatch) as client:
+        tokenizer = install_fake_model(
+            monkeypatch,
+            "We open our doors on Monday!",
+        )
+
         response = client.post(
             "/v1/generate",
             json=generation_payload(
@@ -287,12 +287,12 @@ def test_generation_returns_502_for_unsupported_claim(monkeypatch):
 
 
 def test_generation_returns_502_for_unsupported_business_claim(monkeypatch):
-    install_fake_model(
-        monkeypatch,
-        "Our experienced team guarantees spotless results.",
-    )
-
     with make_client(monkeypatch) as client:
+        install_fake_model(
+            monkeypatch,
+            "Our experienced team guarantees spotless results.",
+        )
+
         response = client.post(
             "/v1/generate",
             json=generation_payload(),
@@ -303,12 +303,12 @@ def test_generation_returns_502_for_unsupported_business_claim(monkeypatch):
 
 
 def test_generation_returns_expected_api_shape_with_fake_model(monkeypatch):
-    fake_tokenizer = install_fake_model(
-        monkeypatch,
-        "Keep your car looking its best. Visit us when it suits you.",
-    )
-
     with make_client(monkeypatch) as client:
+        fake_tokenizer = install_fake_model(
+            monkeypatch,
+            "Keep your car looking its best. Visit us when it suits you.",
+        )
+
         response = client.post(
             "/v1/generate",
             json=generation_payload("Write a friendly car wash social post."),
